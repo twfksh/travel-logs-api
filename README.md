@@ -51,4 +51,3 @@ The following endpoints are available:
     * `/bookings` - Create a new booking.
     * `/bookings/{id}` - Update an existing booking.
     * `/bookings/{id}` - Delete a booking.
-
