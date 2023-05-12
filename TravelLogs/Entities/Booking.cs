@@ -1,13 +1,15 @@
 ﻿namespace travel_logs_api.TravelLogs.Entities;
 
+#nullable disable
+
 public class Booking
 {
-    public int Id { get; set; }
-    public int UserId { get; set; }
-    public int TourId { get; set; }
-    public int TourGuideId { get; set; }
-    public int NumberOfPeople { get; set; }
-    public string Status { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public DateTime UpdatedAt { get; set; }
+    public int Id { get; init; }
+    public int UserId { get; init; }
+    public int TourId { get; init; }
+    public int TourGuideId { get; init; }
+    public int NumberOfPeople { get; init; }
+    public string Status { get; init; }
+    public string CreatedAt { get; init; }
+    public string UpdatedAt { get; init; }
 }

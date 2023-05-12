@@ -1,7 +1,12 @@
-﻿using MySqlConnector;
-using travel_logs_api.TravelLogs.Entities;
+﻿using System.Data;
+using System.Globalization;
 
 namespace travel_logs_api.TravelLogs;
+
+#nullable disable
+
+using MySqlConnector;
+using Entities;
 
 public class Database
 {
@@ -11,7 +16,7 @@ public class Database
     {
         _connectionString = connectionString;
     }
-
+    
     private async Task<MySqlConnection> GetConnection()
     {
         await using var connection = new MySqlConnection(_connectionString);
@@ -36,15 +41,16 @@ public class Database
     {
         return await command.ExecuteNonQueryAsync();
     }
-    
+
     // retrieve user by id
-    public async Task<User?> GetUser(int id)
+    public async Task<User> GetUser(int id)
     {
         var query = $"SELECT * FROM users WHERE id = {id}";
-        await using var command = await CreateCommand(query);
-        command.Parameters.AddWithValue("@id", id);
 
-        await using var reader = await ExecuteReader(command);
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(query, connection);
+        var reader = await command.ExecuteReaderAsync();
         if (!await reader.ReadAsync())
         {
             return null;
@@ -52,15 +58,15 @@ public class Database
 
         var user = new User
         {
-            Id = reader["id"].GetInt32(),
-            Name = reader["name"].GetString(),
-            Email = reader["email"].GetString(),
-            Password = reader["password"].GetString(),
-            Role = reader["role"].GetString(),
-            CreatedAt = reader["created_at"].GetDateTime(),
-            UpdatedAt = reader["updated_at"].GetDateTime()
+            Id = reader["id"].GetHashCode(),
+            Name = reader["name"].ToString(),
+            Email = reader["email"].ToString(),
+            Password = reader["password"].ToString(),
+            Role = reader["role"].ToString(),
+            CreatedAt = reader["created_at"].ToString(),
+            UpdatedAt = reader["updated_at"].ToString()
         };
-
+            
         return user;
     }
 
@@ -68,22 +74,24 @@ public class Database
     public async Task<IEnumerable<User>> GetUsers()
     {
         var query = "SELECT * FROM users";
-        await using var command = await CreateCommand(query);
-
-        await using var reader = await ExecuteReader(command);
+        
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(query, connection);
+        var reader = await command.ExecuteReaderAsync();
         var users = new List<User>();
-
+        
         while (await reader.ReadAsync())
         {
             var user = new User
             {
-                Id = reader["id"].GetInt32(),
-                Name = reader["name"].GetString(),
-                Email = reader["email"].GetString(),
-                Password = reader["password"].GetString(),
-                Role = reader["role"].GetString(),
-                CreatedAt = reader["created_at"].GetDateTime(),
-                UpdatedAt = reader["updated_at"].GetDateTime()
+                Id = reader.GetInt32(0),
+                Name = reader.GetString(1),
+                Email = reader.GetString(2),
+                Password = reader.GetString(3),
+                Role = reader.GetString(4),
+                CreatedAt = reader.GetDateTime(5).ToString(CultureInfo.InvariantCulture),
+                UpdatedAt = reader.GetDateTime(6).ToString(CultureInfo.InvariantCulture)
             };
             users.Add(user);
         }
@@ -94,47 +102,81 @@ public class Database
     // create user
     public async Task<int> CreateUser(User user)
     {
-        var query = "INSERT INTO users (name, email, password, role, created_at, updated_at) VALUES (@name, @email, "
-                    + "@password, @role, @created_at, @updated_at)";
-        await using var command = await CreateCommand(query);
+        var query = "INSERT INTO users (name, email, password, role, updated_at) VALUES (@name, @email, "
+                    + "@password, @role, @updated_at)";
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+        
+        await using var command = new MySqlCommand(query, connection);
         command.Parameters.AddWithValue("@name", user.Name);
         command.Parameters.AddWithValue("@email", user.Email);
         command.Parameters.AddWithValue("@password", user.Password);
         command.Parameters.AddWithValue("@role", user.Role);
-        command.Parameters.AddWithValue("@created_at", user.CreatedAt);
-        command.Parameters.AddWithValue("@updated_at", user.UpdatedAt);
+        command.Parameters.AddWithValue("@updated_at", DateTime.Now.ToString("yyyy-mm-dd hh:mm:ss"));
 
-        return await ExecuteNonQuery(command);
+        return await command.ExecuteNonQueryAsync();
     }
 
     // update user
     public async Task<int> UpdateUser(User user)
     {
-        var query = "UPDATE users SET name = @name, email = @email,"
-                    + " password = @password, role = @role, updated_at = @updated_at WHERE id = @id";
-        await using var command = await CreateCommand(query);
-        command.Parameters.AddWithValue("@id", user.Id);
-        command.Parameters.AddWithValue("@name", user.Name);
-        command.Parameters.AddWithValue("@email", user.Email);
-        command.Parameters.AddWithValue("@password", user.Password);
-        command.Parameters.AddWithValue("@role", user.Role);
-        command.Parameters.AddWithValue("@updated_at", user.UpdatedAt);
+        var query = "UPDATE users SET ";
+        var parameters = new List<MySqlParameter>();
 
-        return await ExecuteNonQuery(command);
+        // Add parameters for the columns that are being updated.
+        if (user.Name != null) {
+            query += "name = @name, ";
+            parameters.Add(new MySqlParameter("@name", user.Name));
+        }
+        if (user.Email != null) {
+            query += "email = @email, ";
+            parameters.Add(new MySqlParameter("@email", user.Email));
+        }
+        if (user.Password != null) {
+            query += "password = @password, ";
+            parameters.Add(new MySqlParameter("@password", user.Password));
+        }
+        if (user.Role != null) {
+            query += "role = @role, ";
+            parameters.Add(new MySqlParameter("@role", user.Role));
+        }
+        if (user.UpdatedAt != null) {
+            query += "updated_at = @updated_at, ";
+            parameters.Add(new MySqlParameter("@updated_at", user.UpdatedAt));
+        }
+
+        // Remove the trailing comma.
+        query = query.Substring(0, query.Length - 2);
+
+        // Add the WHERE clause.
+        query += " WHERE id = @id";
+        parameters.Add(new MySqlParameter("@id", user.Id));
+
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+    
+        await using var command = new MySqlCommand(query, connection);
+        foreach (var parameter in parameters) {
+            command.Parameters.AddWithValue(parameter.ParameterName, parameter.Value);
+        }
+
+        return await command.ExecuteNonQueryAsync();
     }
 
     // delete user
     public async Task<int> DeleteUser(int id)
     {
         var query = $"DELETE FROM users WHERE id = {id}";
-        await using var command = await CreateCommand(query);
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(query, connection);
         command.Parameters.AddWithValue("@id", id);
 
-        return await ExecuteNonQuery(command);
+        return await command.ExecuteNonQueryAsync();
     }
     
     // retrieve tour details by id
-    public async Task<Tour?> GetTour(int id)
+    public async Task<Tour> GetTour(int id)
     {
         var query = $"SELECT * FROM tours WHERE id = {id}";
         await using var command = await CreateCommand(query);
@@ -148,15 +190,15 @@ public class Database
 
         var tour = new Tour
         {
-            Id = reader["id"].GetInt32(),
-            Name = reader["name"].GetString(),
-            Destination = reader["destination"].GetString(),
-            Date = reader["date"].GetDateTime(),
-            Activities = reader["activities"].GetString(),
-            Price = reader["price"].GetString(),
-            Availability = reader["availability"].GetString(),
-            CreatedAt = reader["created_at"].GetDateTime(),
-            UpdatedAt = reader["updated_at"].GetDateTime()
+            Id = reader["id"].GetHashCode(),
+            Name = reader["name"].ToString(),
+            Destination = reader["destination"].ToString(),
+            Date = reader["date"].ToString(),
+            Activities = reader["activities"].ToString(),
+            Price = reader["price"].ToString(),
+            Availability = reader["availability"].ToString(),
+            CreatedAt = reader["created_at"].ToString(),
+            UpdatedAt = reader["updated_at"].ToString()
         };
 
         return tour;
@@ -175,15 +217,15 @@ public class Database
         {
             var tour = new Tour
             {
-                Id = reader["id"].GetInt32(),
-                Name = reader["name"].GetString(),
-                Destination = reader["destination"].GetString(),
-                Date = reader["date"].GetDateTime(),
-                Activities = reader["activities"].GetString(),
-                Price = reader["price"].GetString(),
-                Availability = reader["availability"].GetString(),
-                CreatedAt = reader["created_at"].GetDateTime(),
-                UpdatedAt = reader["updated_at"].GetDateTime()
+                Id = reader["id"].GetHashCode(),
+                Name = reader["name"].ToString(),
+                Destination = reader["destination"].ToString(),
+                Date = reader["date"].ToString(),
+                Activities = reader["activities"].ToString(),
+                Price = reader["price"].ToString(),
+                Availability = reader["availability"].ToString(),
+                CreatedAt = reader["created_at"].ToString(),
+                UpdatedAt = reader["updated_at"].ToString()
             };
             tours.Add(tour);
         }
@@ -195,8 +237,8 @@ public class Database
     public async Task<int> CreateTour(Tour tour)
     {
         var query =
-            "INSERT INTO tours (name, destination, date, activities, price, availability, created_at, updated_at) VALUES (@name, @destination, "
-            + "@date, @activities, @price, @availability, @created_at, @updated_at)";
+            "INSERT INTO tours (name, destination, date, activities, price, availability, capacity) VALUES (@name, @destination, "
+            + "@date, @activities, @price, @availability, @capacity)";
         await using var command = await CreateCommand(query);
         command.Parameters.AddWithValue("@name", tour.Name);
         command.Parameters.AddWithValue("@destination", tour.Destination);
@@ -204,8 +246,7 @@ public class Database
         command.Parameters.AddWithValue("@activities", tour.Activities);
         command.Parameters.AddWithValue("@price", tour.Price);
         command.Parameters.AddWithValue("@availability", tour.Availability);
-        command.Parameters.AddWithValue("@created_at", tour.CreatedAt);
-        command.Parameters.AddWithValue("@updated_at", tour.UpdatedAt);
+        command.Parameters.AddWithValue("@capacity", tour.Capacity);
 
         return await ExecuteNonQuery(command);
     }
@@ -214,16 +255,15 @@ public class Database
     public async Task<int> UpdateTour(Tour tour)
     {
         var query = "UPDATE tours SET name = @name, destination = @destination,"
-                    + " date = @date, activities = @activities, price = @price, availability = @availability, updated_at = @updated_at WHERE id = @id";
+                    + " date = @date, activities = @activities, price = @price, availability = @availability, capacity = @capacity WHERE id = @id";
         var command = await CreateCommand(query);
-        command.Parameters.AddWithValue("@id", tour.Id);
         command.Parameters.AddWithValue("@name", tour.Name);
         command.Parameters.AddWithValue("@destination", tour.Destination);
         command.Parameters.AddWithValue("@date", tour.Date);
         command.Parameters.AddWithValue("@activities", tour.Activities);
         command.Parameters.AddWithValue("@price", tour.Price);
         command.Parameters.AddWithValue("@availability", tour.Availability);
-        command.Parameters.AddWithValue("@updated_at", tour.UpdatedAt);
+        command.Parameters.AddWithValue("@capacity", tour.Capacity);
 
         return await ExecuteNonQuery(command);
     }
@@ -239,7 +279,7 @@ public class Database
     }
     
     // retrieve tour_guide details by id
-    public async Task<TourGuide?> GetTourGuide(int id)
+    public async Task<TourGuide> GetTourGuide(int id)
     {
         var query = $"SELECT * FROM tour_guides WHERE id = {id}";
         await using var command = await CreateCommand(query);
@@ -252,13 +292,13 @@ public class Database
         
         var tourGuide = new TourGuide
         {
-            Id = reader["id"].GetInt32(),
-            Name = reader["name"].GetString(),
-            Experience = reader["experience"].GetString(),
-            Availability = reader["availability"].GetString(),
-            ContactInfo = reader["contact_info"].GetString(),
-            CreatedAt = reader["created_at"].GetDateTime(),
-            UpdatedAt = reader["updated_at"].GetDateTime()
+            Id = reader["id"].GetHashCode(),
+            Name = reader["name"].ToString(),
+            Experience = reader["experience"].ToString(),
+            Availability = reader["availability"].ToString(),
+            ContactInfo = reader["contact_info"].ToString(),
+            CreatedAt = reader["created_at"].ToString(),
+            UpdatedAt = reader["updated_at"].ToString()
         };
         
         return tourGuide;
@@ -277,13 +317,13 @@ public class Database
         {
             var tourGuide = new TourGuide
             {
-                Id = reader["id"].GetInt32(),
-                Name = reader["name"].GetString(),
-                Experience = reader["experience"].GetString(),
-                Availability = reader["availability"].GetString(),
-                ContactInfo = reader["contact_info"].GetString(),
-                CreatedAt = reader["created_at"].GetDateTime(),
-                UpdatedAt = reader["updated_at"].GetDateTime()
+                Id = reader["id"].GetHashCode(),
+                Name = reader["name"].ToString(),
+                Experience = reader["experience"].ToString(),
+                Availability = reader["availability"].ToString(),
+                ContactInfo = reader["contact_info"].ToString(),
+                CreatedAt = reader["created_at"].ToString(),
+                UpdatedAt = reader["updated_at"].ToString()
             };
             tourGuides.Add(tourGuide);
         }
@@ -295,16 +335,13 @@ public class Database
     public async Task<int> CreateTourGuide(TourGuide tourGuide)
     {
         var query =
-            "INSERT INTO tour_guides (id, name, experience, availability, contact_info, created_at, updated_at) VALUES (@id, @name, @experience, @availability, @contact_info, @created_at, @updated_at)";
+            "INSERT INTO tour_guides (name, experience, availability, contact_info) VALUES (@name, @experience, @availability, @contact_info)";
         var command = await CreateCommand(query);
-        command.Parameters.AddWithValue("@id", tourGuide.Id);
         command.Parameters.AddWithValue("@name", tourGuide.Name);
         command.Parameters.AddWithValue("@experience", tourGuide.Experience);
         command.Parameters.AddWithValue("@availability", tourGuide.Availability);
         command.Parameters.AddWithValue("@contact_info", tourGuide.ContactInfo);
-        command.Parameters.AddWithValue("@created_at", tourGuide.CreatedAt);
-        command.Parameters.AddWithValue("@updated_at", tourGuide.UpdatedAt);
-        
+
         return await ExecuteNonQuery(command);
     }
     
@@ -312,15 +349,13 @@ public class Database
     public async Task<int> UpdateTourGuide(TourGuide tourGuide)
     {
         var query = "UPDATE tour_guides SET name = @name, experience = @experience,"
-                    + " availability = @availability, contact_info = @contact_info, updated_at = @updated_at WHERE id = @id";
+                    + " availability = @availability, contact_info = @contact_info WHERE id = @id";
         var command = await CreateCommand(query);
-        command.Parameters.AddWithValue("@id", tourGuide.Id);
         command.Parameters.AddWithValue("@name", tourGuide.Name);
         command.Parameters.AddWithValue("@experience", tourGuide.Experience);
         command.Parameters.AddWithValue("@availability", tourGuide.Availability);
         command.Parameters.AddWithValue("@contact_info", tourGuide.ContactInfo);
-        command.Parameters.AddWithValue("@updated_at", tourGuide.UpdatedAt);
-        
+
         return await ExecuteNonQuery(command);
     }
     
@@ -335,7 +370,7 @@ public class Database
     }
     
     // retrieve booking details by id
-    public async Task<Booking?> GetBooking(int id)
+    public async Task<Booking> GetBooking(int id)
     {
         var query = $"SELECT * FROM bookings WHERE id = {id}";
         await using var command = await CreateCommand(query);
@@ -348,14 +383,14 @@ public class Database
         
         var booking = new Booking
         {
-            Id = reader["id"].GetInt32(),
-            UserId = reader["user_id"].GetInt32(),
-            TourId = reader["tour_id"].GetInt32(),
-            TourGuideId = reader["tour_guide_id"].GetInt32(),
-            NumberOfPeople = reader["number_of_people"].GetInt32(),
-            Status = reader["status"].GetString(),
-            CreatedAt = reader["created_at"].GetDateTime(),
-            UpdatedAt = reader["updated_at"].GetDateTime()
+            Id = reader["id"].GetHashCode(),
+            UserId = reader["user_id"].GetHashCode(),
+            TourId = reader["tour_id"].GetHashCode(),
+            TourGuideId = reader["tour_guide_id"].GetHashCode(),
+            NumberOfPeople = reader["number_of_people"].GetHashCode(),
+            Status = reader["status"].ToString(),
+            CreatedAt = reader["created_at"].ToString(),
+            UpdatedAt = reader["updated_at"].ToString()
         };
         
         return booking;
@@ -374,14 +409,13 @@ public class Database
         {
             var booking = new Booking
             {
-                Id = reader["id"].GetInt32(),
-                UserId = reader["user_id"].GetInt32(),
-                TourId = reader["tour_id"].GetInt32(),
-                TourGuideId = reader["tour_guide_id"].GetInt32(),
-                NumberOfPeople = reader["number_of_people"].GetInt32(),
-                Status = reader["status"].GetString(),
-                CreatedAt = reader["created_at"].GetDateTime(),
-                UpdatedAt = reader["updated_at"].GetDateTime()
+                Id = reader["id"].GetHashCode(),
+                UserId = reader["user_id"].GetHashCode(),
+                TourId = reader["tour_id"].GetHashCode(),
+                TourGuideId = reader["tour_guide_id"].GetHashCode(),
+                NumberOfPeople = reader["number_of_people"].GetHashCode(),
+                Status = reader["status"].ToString(),
+                UpdatedAt = reader["updated_at"].ToString()
             };
             bookings.Add(booking);
         }
@@ -393,17 +427,14 @@ public class Database
     public async Task<int> CreateBooking(Booking booking)
     {
         var query =
-            "INSERT INTO bookings (id, user_id, tour_id, tour_guide_id, number_of_people, status, created_at, updated_at) VALUES (@id, @user_id, @tour_id, @tour_guide_id, @number_of_people, @status, @created_at, @updated_at)";
+            "INSERT INTO bookings (user_id, tour_id, tour_guide_id, number_of_people, status) VALUES (@user_id, @tour_id, @tour_guide_id, @number_of_people, @status)";
         var command = await CreateCommand(query);
-        command.Parameters.AddWithValue("@id", booking.Id);
         command.Parameters.AddWithValue("@user_id", booking.UserId);
         command.Parameters.AddWithValue("@tour_id", booking.TourId);
         command.Parameters.AddWithValue("@tour_guide_id", booking.TourGuideId);
         command.Parameters.AddWithValue("@number_of_people", booking.NumberOfPeople);
         command.Parameters.AddWithValue("@status", booking.Status);
-        command.Parameters.AddWithValue("@created_at", booking.CreatedAt);
-        command.Parameters.AddWithValue("@updated_at", booking.UpdatedAt);
-        
+
         return await ExecuteNonQuery(command);
     }
     
@@ -411,16 +442,14 @@ public class Database
     public async Task<int> UpdateBooking(Booking booking)
     {
         var query = "UPDATE bookings SET user_id = @user_id, tour_id = @tour_id,"
-                    + " tour_guide_id = @tour_guide_id, number_of_people = @number_of_people, status = @status, updated_at = @updated_at WHERE id = @id";
+                    + " tour_guide_id = @tour_guide_id, number_of_people = @number_of_people, status = @status WHERE id = @id";
         var command = await CreateCommand(query);
-        command.Parameters.AddWithValue("@id", booking.Id);
         command.Parameters.AddWithValue("@user_id", booking.UserId);
         command.Parameters.AddWithValue("@tour_id", booking.TourId);
         command.Parameters.AddWithValue("@tour_guide_id", booking.TourGuideId);
         command.Parameters.AddWithValue("@number_of_people", booking.NumberOfPeople);
         command.Parameters.AddWithValue("@status", booking.Status);
-        command.Parameters.AddWithValue("@updated_at", booking.UpdatedAt);
-        
+
         return await ExecuteNonQuery(command);
     }
     
