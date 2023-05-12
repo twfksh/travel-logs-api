@@ -1,5 +1,4 @@
-﻿using System.Data;
-using System.Globalization;
+﻿using System.Globalization;
 
 namespace travel_logs_api.TravelLogs;
 
@@ -179,10 +178,10 @@ public class Database
     public async Task<Tour> GetTour(int id)
     {
         var query = $"SELECT * FROM tours WHERE id = {id}";
-        await using var command = await CreateCommand(query);
-        command.Parameters.AddWithValue("@id", id);
-
-        await using var reader = await ExecuteReader(command);
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(query, connection);
+        var reader = await command.ExecuteReaderAsync();
         if (!await reader.ReadAsync())
         {
             return null;
@@ -190,15 +189,16 @@ public class Database
 
         var tour = new Tour
         {
-            Id = reader["id"].GetHashCode(),
-            Name = reader["name"].ToString(),
-            Destination = reader["destination"].ToString(),
-            Date = reader["date"].ToString(),
-            Activities = reader["activities"].ToString(),
-            Price = reader["price"].ToString(),
-            Availability = reader["availability"].ToString(),
-            CreatedAt = reader["created_at"].ToString(),
-            UpdatedAt = reader["updated_at"].ToString()
+            Id = reader.GetInt32(0),
+            Name = reader.GetString(1),
+            Destination = reader.GetString(2),
+            Date = reader.GetDateTime(3).ToString("yyyy-mm-dd hh:mm:ss"),
+            Activities = reader.GetString(4),
+            Price = reader.GetDecimal(5),
+            Availability = reader.GetString(6),
+            Capacity = reader.GetInt32(9),
+            CreatedAt = reader.GetDateTime(7).ToString("yyyy-mm-dd hh:mm:ss"),
+            UpdatedAt = reader.GetDateTime(8).ToString("yyyy-mm-dd hh:mm:ss")
         };
 
         return tour;
@@ -208,24 +208,26 @@ public class Database
     public async Task<IEnumerable<Tour>> GetTours()
     {
         var query = "SELECT * FROM tours";
-        await using var command = await CreateCommand(query);
-
-        await using var reader = await ExecuteReader(command);
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(query, connection);
+        var reader = await command.ExecuteReaderAsync();
         var tours = new List<Tour>();
 
         while (await reader.ReadAsync())
         {
             var tour = new Tour
             {
-                Id = reader["id"].GetHashCode(),
-                Name = reader["name"].ToString(),
-                Destination = reader["destination"].ToString(),
-                Date = reader["date"].ToString(),
-                Activities = reader["activities"].ToString(),
-                Price = reader["price"].ToString(),
-                Availability = reader["availability"].ToString(),
-                CreatedAt = reader["created_at"].ToString(),
-                UpdatedAt = reader["updated_at"].ToString()
+                Id = reader.GetInt32(0),
+                Name = reader.GetString(1),
+                Destination = reader.GetString(2),
+                Date = reader.GetDateTime(3).ToString("yyyy-mm-dd hh:mm:ss"),
+                Activities = reader.GetString(4),
+                Price = reader.GetDecimal(5),
+                Availability = reader.GetString(6),
+                Capacity = reader.GetInt32(9),
+                CreatedAt = reader.GetDateTime(7).ToString("yyyy-mm-dd hh:mm:ss"),
+                UpdatedAt = reader.GetDateTime(8).ToString("yyyy-mm-dd hh:mm:ss")
             };
             tours.Add(tour);
         }
@@ -237,9 +239,11 @@ public class Database
     public async Task<int> CreateTour(Tour tour)
     {
         var query =
-            "INSERT INTO tours (name, destination, date, activities, price, availability, capacity) VALUES (@name, @destination, "
-            + "@date, @activities, @price, @availability, @capacity)";
-        await using var command = await CreateCommand(query);
+            "INSERT INTO tours (name, destination, date, activities, price, availability, capacity, updated_at) VALUES (@name, @destination, "
+            + "@date, @activities, @price, @availability, @capacity, @updated_at)";
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(query, connection);
         command.Parameters.AddWithValue("@name", tour.Name);
         command.Parameters.AddWithValue("@destination", tour.Destination);
         command.Parameters.AddWithValue("@date", tour.Date);
@@ -247,44 +251,91 @@ public class Database
         command.Parameters.AddWithValue("@price", tour.Price);
         command.Parameters.AddWithValue("@availability", tour.Availability);
         command.Parameters.AddWithValue("@capacity", tour.Capacity);
+        command.Parameters.AddWithValue("@updated_at", DateTime.Now);
 
-        return await ExecuteNonQuery(command);
+        return await command.ExecuteNonQueryAsync();
     }
 
     // update tour
     public async Task<int> UpdateTour(Tour tour)
     {
-        var query = "UPDATE tours SET name = @name, destination = @destination,"
-                    + " date = @date, activities = @activities, price = @price, availability = @availability, capacity = @capacity WHERE id = @id";
-        var command = await CreateCommand(query);
-        command.Parameters.AddWithValue("@name", tour.Name);
-        command.Parameters.AddWithValue("@destination", tour.Destination);
-        command.Parameters.AddWithValue("@date", tour.Date);
-        command.Parameters.AddWithValue("@activities", tour.Activities);
-        command.Parameters.AddWithValue("@price", tour.Price);
-        command.Parameters.AddWithValue("@availability", tour.Availability);
-        command.Parameters.AddWithValue("@capacity", tour.Capacity);
+        var query = "UPDATE tours SET ";
+        var parameters = new List<MySqlParameter>();
 
-        return await ExecuteNonQuery(command);
+        if (tour.Name != null)
+        {
+            query += "name = @name, ";
+            parameters.Add(new MySqlParameter("@name", tour.Name));
+        }
+        if (tour.Destination != null)
+        {
+            query += "destination = @destination, ";
+            parameters.Add(new MySqlParameter("@destination", tour.Destination));
+        }
+        if (tour.Date != null)
+        {
+            query += "date = @date, ";
+            parameters.Add(new MySqlParameter("@date", tour.Date));
+        }
+        if (tour.Activities != null)
+        {
+            query += "activities = @activities, ";
+            parameters.Add(new MySqlParameter("@activities", tour.Activities));
+        }
+        if (tour.Price != 0)
+        {
+            query += "price = @price, ";
+            parameters.Add(new MySqlParameter("@price", tour.Price));
+        }
+        if (tour.Availability != null)
+        {
+            query += "availability = @availability, ";
+            parameters.Add(new MySqlParameter("@availability", tour.Availability));
+        }
+        if (tour.Capacity != 0)
+        {
+            query += "capacity = @capacity, ";
+            parameters.Add(new MySqlParameter("@capacity", tour.Capacity));
+        }
+        query += "updated_at = @updated_at";
+        parameters.Add(new MySqlParameter("@updated_at", DateTime.Now));
+
+        // Add the WHERE clause.
+        query += " WHERE id = @id";
+        parameters.Add(new MySqlParameter("@id", tour.Id));
+
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+
+        await using var command = new MySqlCommand(query, connection);
+        foreach (var parameter in parameters)
+        {
+            command.Parameters.AddWithValue(parameter.ParameterName, parameter.Value);
+        }
+
+        return await command.ExecuteNonQueryAsync();
     }
 
     // delete tour
     public async Task<int> DeleteTour(int id)
     {
         var query = $"DELETE FROM tours WHERE id = {id}";
-        await using var command = await CreateCommand(query);
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(query, connection);
         command.Parameters.AddWithValue("@id", id);
 
-        return await ExecuteNonQuery(command);
+        return await command.ExecuteNonQueryAsync();
     }
     
     // retrieve tour_guide details by id
     public async Task<TourGuide> GetTourGuide(int id)
     {
         var query = $"SELECT * FROM tour_guides WHERE id = {id}";
-        await using var command = await CreateCommand(query);
-        
-        await using var reader = await ExecuteReader(command);
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(query, connection);
+        await using var reader = await command.ExecuteReaderAsync();
         if (!await reader.ReadAsync())
         {
             return null;
@@ -292,13 +343,13 @@ public class Database
         
         var tourGuide = new TourGuide
         {
-            Id = reader["id"].GetHashCode(),
-            Name = reader["name"].ToString(),
-            Experience = reader["experience"].ToString(),
-            Availability = reader["availability"].ToString(),
-            ContactInfo = reader["contact_info"].ToString(),
-            CreatedAt = reader["created_at"].ToString(),
-            UpdatedAt = reader["updated_at"].ToString()
+            Id = reader.GetInt32(0),
+            Name = reader.GetString(1),
+            Experience = reader.GetString(2),
+            Availability = reader.GetString(3),
+            ContactInfo = reader.GetString(4),
+            CreatedAt = reader.GetDateTime(5).ToString("yyyy-mm-dd hh:mm:ss"),
+            UpdatedAt = reader.GetDateTime(6).ToString("yyyy-mm-dd hh:mm:ss")
         };
         
         return tourGuide;
@@ -308,22 +359,23 @@ public class Database
     public async Task<IEnumerable<TourGuide>> GetTourGuides()
     {
         var query = "SELECT * FROM tour_guides";
-        await using var command = await CreateCommand(query);
-        
-        await using var reader = await ExecuteReader(command);
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(query, connection);
+        await using var reader = await command.ExecuteReaderAsync();
         var tourGuides = new List<TourGuide>();
         
         while (await reader.ReadAsync())
         {
             var tourGuide = new TourGuide
             {
-                Id = reader["id"].GetHashCode(),
-                Name = reader["name"].ToString(),
-                Experience = reader["experience"].ToString(),
-                Availability = reader["availability"].ToString(),
-                ContactInfo = reader["contact_info"].ToString(),
-                CreatedAt = reader["created_at"].ToString(),
-                UpdatedAt = reader["updated_at"].ToString()
+                Id = reader.GetInt32(0),
+                Name = reader.GetString(1),
+                Experience = reader.GetString(2),
+                Availability = reader.GetString(3),
+                ContactInfo = reader.GetString(4),
+                CreatedAt = reader.GetDateTime(5).ToString("yyyy-mm-dd hh:mm:ss"),
+                UpdatedAt = reader.GetDateTime(6).ToString("yyyy-mm-dd hh:mm:ss")
             };
             tourGuides.Add(tourGuide);
         }
@@ -335,47 +387,57 @@ public class Database
     public async Task<int> CreateTourGuide(TourGuide tourGuide)
     {
         var query =
-            "INSERT INTO tour_guides (name, experience, availability, contact_info) VALUES (@name, @experience, @availability, @contact_info)";
-        var command = await CreateCommand(query);
+            "INSERT INTO tour_guides (name, experience, availability, contact_info, updated_at) VALUES (@name, @experience, @availability, @contact_info, @updated_at)";
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(query, connection);
         command.Parameters.AddWithValue("@name", tourGuide.Name);
         command.Parameters.AddWithValue("@experience", tourGuide.Experience);
         command.Parameters.AddWithValue("@availability", tourGuide.Availability);
         command.Parameters.AddWithValue("@contact_info", tourGuide.ContactInfo);
+        command.Parameters.AddWithValue("@updated_at", DateTime.Now);
 
-        return await ExecuteNonQuery(command);
+        return await command.ExecuteNonQueryAsync();
     }
     
     // update tour_guide
     public async Task<int> UpdateTourGuide(TourGuide tourGuide)
     {
         var query = "UPDATE tour_guides SET name = @name, experience = @experience,"
-                    + " availability = @availability, contact_info = @contact_info WHERE id = @id";
-        var command = await CreateCommand(query);
+                    + " availability = @availability, contact_info = @contact_info, updated_at = @updated_at WHERE id = @id";
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(query, connection);
         command.Parameters.AddWithValue("@name", tourGuide.Name);
         command.Parameters.AddWithValue("@experience", tourGuide.Experience);
         command.Parameters.AddWithValue("@availability", tourGuide.Availability);
         command.Parameters.AddWithValue("@contact_info", tourGuide.ContactInfo);
+        command.Parameters.AddWithValue("@updated_at", DateTime.Now);
 
-        return await ExecuteNonQuery(command);
+        return await command.ExecuteNonQueryAsync();
     }
     
     // delete tour_guide
     public async Task<int> DeleteTourGuide(int id)
     {
         var query = $"DELETE FROM tour_guides WHERE id = {id}";
-        await using var command = await CreateCommand(query);
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(query, connection);
         command.Parameters.AddWithValue("@id", id);
 
-        return await ExecuteNonQuery(command);
+        return await command.ExecuteNonQueryAsync();
     }
     
     // retrieve booking details by id
     public async Task<Booking> GetBooking(int id)
     {
         var query = $"SELECT * FROM bookings WHERE id = {id}";
-        await using var command = await CreateCommand(query);
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
         
-        await using var reader = await ExecuteReader(command);
+        await using var command = new MySqlCommand(query, connection);
+        await using var reader = await command.ExecuteReaderAsync();
         if (!await reader.ReadAsync())
         {
             return null;
@@ -383,14 +445,15 @@ public class Database
         
         var booking = new Booking
         {
-            Id = reader["id"].GetHashCode(),
-            UserId = reader["user_id"].GetHashCode(),
-            TourId = reader["tour_id"].GetHashCode(),
-            TourGuideId = reader["tour_guide_id"].GetHashCode(),
-            NumberOfPeople = reader["number_of_people"].GetHashCode(),
-            Status = reader["status"].ToString(),
-            CreatedAt = reader["created_at"].ToString(),
-            UpdatedAt = reader["updated_at"].ToString()
+            Id = reader.GetInt32(0),
+            UserId = reader.GetInt32(1),
+            TourId = reader.GetInt32(2),
+            TourGuideId = reader.GetInt32(8),
+            NumberOfPeople = reader.GetInt32(4),
+            Status = reader.GetString(5),
+            Date = reader.GetDateTime(3).ToString("yyyy-mm-dd hh:mm:ss"),
+            CreatedAt = reader.GetDateTime(6).ToString("yyyy-mm-dd hh:mm:ss"),
+            UpdatedAt = reader.GetDateTime(7).ToString("yyyy-mm-dd hh:mm:ss")
         };
         
         return booking;
@@ -400,22 +463,26 @@ public class Database
     public async Task<IEnumerable<Booking>> GetBookings()
     {
         var query = "SELECT * FROM bookings";
-        await using var command = await CreateCommand(query);
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
         
-        await using var reader = await ExecuteReader(command);
+        await using var command = new MySqlCommand(query, connection);
+        await using var reader = await command.ExecuteReaderAsync();
         var bookings = new List<Booking>();
         
         while (await reader.ReadAsync())
         {
             var booking = new Booking
             {
-                Id = reader["id"].GetHashCode(),
-                UserId = reader["user_id"].GetHashCode(),
-                TourId = reader["tour_id"].GetHashCode(),
-                TourGuideId = reader["tour_guide_id"].GetHashCode(),
-                NumberOfPeople = reader["number_of_people"].GetHashCode(),
-                Status = reader["status"].ToString(),
-                UpdatedAt = reader["updated_at"].ToString()
+                Id = reader.GetInt32(0),
+                UserId = reader.GetInt32(1),
+                TourId = reader.GetInt32(2),
+                TourGuideId = reader.GetInt32(8),
+                NumberOfPeople = reader.GetInt32(4),
+                Status = reader.GetString(5),
+                Date = reader.GetDateTime(3).ToString("yyyy-mm-dd hh:mm:ss"),
+                CreatedAt = reader.GetDateTime(6).ToString("yyyy-mm-dd hh:mm:ss"),
+                UpdatedAt = reader.GetDateTime(7).ToString("yyyy-mm-dd hh:mm:ss")
             };
             bookings.Add(booking);
         }
@@ -427,13 +494,16 @@ public class Database
     public async Task<int> CreateBooking(Booking booking)
     {
         var query =
-            "INSERT INTO bookings (user_id, tour_id, tour_guide_id, number_of_people, status) VALUES (@user_id, @tour_id, @tour_guide_id, @number_of_people, @status)";
-        var command = await CreateCommand(query);
+            "INSERT INTO bookings (user_id, tour_id, tour_guide_id, number_of_people, status, updated_at) VALUES (@user_id, @tour_id, @tour_guide_id, @number_of_people, @status, @updated_at)";
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(query, connection);
         command.Parameters.AddWithValue("@user_id", booking.UserId);
         command.Parameters.AddWithValue("@tour_id", booking.TourId);
         command.Parameters.AddWithValue("@tour_guide_id", booking.TourGuideId);
         command.Parameters.AddWithValue("@number_of_people", booking.NumberOfPeople);
         command.Parameters.AddWithValue("@status", booking.Status);
+        command.Parameters.AddWithValue("@updated_at", DateTime.Now);
 
         return await ExecuteNonQuery(command);
     }
@@ -443,7 +513,9 @@ public class Database
     {
         var query = "UPDATE bookings SET user_id = @user_id, tour_id = @tour_id,"
                     + " tour_guide_id = @tour_guide_id, number_of_people = @number_of_people, status = @status WHERE id = @id";
-        var command = await CreateCommand(query);
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(query, connection);
         command.Parameters.AddWithValue("@user_id", booking.UserId);
         command.Parameters.AddWithValue("@tour_id", booking.TourId);
         command.Parameters.AddWithValue("@tour_guide_id", booking.TourGuideId);
@@ -457,7 +529,9 @@ public class Database
     public async Task<int> DeleteBooking(int id)
     {
         var query = $"DELETE FROM bookings WHERE id = {id}";
-        await using var command = await CreateCommand(query);
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var command = new MySqlCommand(query, connection);
         command.Parameters.AddWithValue("@id", id);
         
         return await ExecuteNonQuery(command);

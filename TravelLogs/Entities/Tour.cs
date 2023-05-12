@@ -9,8 +9,8 @@ public class Tour
     public string Destination { get; init; }
     public string Date { get; init; }
     public string Activities { get; init; }
-    public string Price { get; init; }
-    public string Capacity { get; init; }
+    public decimal Price { get; init; }
+    public int Capacity { get; init; }
     public string Availability { get; init; }
     public string CreatedAt { get; init; }
     public string UpdatedAt { get; init; }

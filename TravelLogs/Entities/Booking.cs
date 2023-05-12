@@ -10,6 +10,7 @@ public class Booking
     public int TourGuideId { get; init; }
     public int NumberOfPeople { get; init; }
     public string Status { get; init; }
+    public string Date { get; init; }
     public string CreatedAt { get; init; }
     public string UpdatedAt { get; init; }
 }
