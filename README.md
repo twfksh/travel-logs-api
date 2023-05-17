@@ -1,3 +1,4 @@
+# [!planning to migrate to FastAPI and postgres]
 # travel_logs_api
 
 This is a RESTful API that provides a way to access travel logs data. The API is built with ASP.NET Web API (Minimal API).
